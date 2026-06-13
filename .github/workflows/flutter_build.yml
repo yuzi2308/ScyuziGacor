@@ -1,0 +1,84 @@
+name: Flutter Build APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Job ID dari bot Telegram'
+        required: true
+      zip_path:
+        description: 'Path file ZIP di repo'
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Download ZIP Project dari Repo
+        run: |
+          echo "Mengunduh project dari: ${{ github.event.inputs.zip_path }}"
+          # File sudah ada di repo karena di-upload bot via GitHub API
+          ls -la uploads/ || echo "Folder uploads tidak ada"
+
+      - name: Extract Project ZIP
+        run: |
+          JOB_ID="${{ github.event.inputs.job_id }}"
+          ZIP_PATH="${{ github.event.inputs.zip_path }}"
+          mkdir -p flutter_project
+          unzip -o "$ZIP_PATH" -d flutter_project_raw
+          # Handle nested folder structure
+          INNER=$(find flutter_project_raw -name "pubspec.yaml" -maxdepth 3 | head -1 | xargs dirname)
+          if [ -n "$INNER" ]; then
+            cp -r "$INNER"/. flutter_project/
+          else
+            cp -r flutter_project_raw/. flutter_project/
+          fi
+          echo "Isi project:"
+          ls flutter_project/
+
+      - name: Get Flutter Dependencies
+        working-directory: flutter_project
+        run: flutter pub get
+
+      - name: Build APK (Release)
+        working-directory: flutter_project
+        run: flutter build apk --release --no-shrink
+
+      - name: Cari Hasil APK
+        run: |
+          find flutter_project -name "*.apk" -type f
+          APK_PATH=$(find flutter_project -name "app-release.apk" | head -1)
+          echo "APK ditemukan: $APK_PATH"
+          echo "APK_PATH=$APK_PATH" >> $GITHUB_ENV
+
+      - name: Upload Artifact APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ github.event.inputs.job_id }}
+          path: ${{ env.APK_PATH }}
+          retention-days: 3
+
+      - name: Info Selesai
+        run: |
+          echo "============================================"
+          echo "✅ BUILD SELESAI!"
+          echo "Job ID: ${{ github.event.inputs.job_id }}"
+          echo "============================================"
