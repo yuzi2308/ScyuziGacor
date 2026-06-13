@@ -1,2 +1,0 @@
-# ScyuziGacor
-SC gcrt
